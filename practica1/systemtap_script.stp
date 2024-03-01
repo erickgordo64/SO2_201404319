@@ -1,0 +1,6 @@
+probe syscall.* {
+    if (pid() == target()) {
+        printf("Proceso hijo %d: %s (%d)\n", pid(), probefunc(), gettimeofday_us());
+    }
+}
+
