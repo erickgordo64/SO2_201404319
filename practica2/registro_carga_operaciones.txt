@@ -1,0 +1,2 @@
+Total de operaciones cargadas: 200
+Errores en la carga de operaciones: 1

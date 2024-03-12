@@ -40,6 +40,20 @@ int usuarios_procesados[NUM_HILOS] = {0}; // Usuarios procesados por cada hilo
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; // Mutex para sincronizar acceso a datos compartidos
 
+// Función para escribir un error en el archivo de errores
+void escribirError(const char *mensaje)
+{
+    // Abrir el archivo de errores
+    FILE *error_file = fopen("errores.log", "a"); // Abre el archivo en modo de añadir al final
+    if (error_file == NULL)
+    {
+        perror("Error al abrir el archivo de errores");
+        return;
+    }
+    fprintf(error_file, "%s\n", mensaje);
+    fclose(error_file);
+}
+
 // Función que será ejecutada por cada hilo
 void *procesarUsuarios(void *args)
 {
@@ -136,8 +150,6 @@ void generarReporte()
 // Función para realizar un depósito
 void realizarDeposito(int cuenta_destino, double monto)
 {
-    pthread_mutex_lock(&mutex); // Bloquear el mutex antes de modificar datos compartidos
-
     // Buscar la cuenta destino
     int index_destino = -1;
     for (int i = 0; i < total_usuarios; ++i)
@@ -152,34 +164,119 @@ void realizarDeposito(int cuenta_destino, double monto)
     // Validar si la cuenta destino existe
     if (index_destino == -1)
     {
-        printf("Error: El número de cuenta %d no existe.\n", cuenta_destino);
-        pthread_mutex_unlock(&mutex);
+        escribirError("Error: El número de cuenta no existe.");
         return;
     }
 
     // Validar si el monto es válido
     if (monto <= 0)
     {
-        printf("Error: El monto debe ser un número positivo.\n");
-        pthread_mutex_unlock(&mutex);
+        escribirError("Error: El monto debe ser un número positivo.");
         return;
     }
 
     // Realizar el depósito
     usuarios[index_destino].saldo += monto;
     printf("Depósito de %.2f realizado en la cuenta %d.\n", monto, cuenta_destino);
-
-    pthread_mutex_unlock(&mutex); // Desbloquear el mutex después de modificar datos compartidos
 }
 
 // Función para realizar un retiro
 void realizarRetiro(int cuenta_origen, double monto)
 {
+    // Buscar la cuenta origen
+    int index_origen = -1;
+    for (int i = 0; i < total_usuarios; ++i)
+    {
+        if (usuarios[i].no_cuenta == cuenta_origen)
+        {
+            index_origen = i;
+            break;
+        }
+    }
+
+    // Validar si la cuenta origen existe
+    if (index_origen == -1)
+    {
+        escribirError("Error: El número de cuenta no existe.");
+        return;
+    }
+
+    // Validar si el monto es válido
+    if (monto <= 0)
+    {
+        escribirError("Error: El monto debe ser un número positivo.");
+        return;
+    }
+
+    // Validar si la cuenta tiene saldo suficiente
+    if (usuarios[index_origen].saldo < monto)
+    {
+        escribirError("Error: La cuenta no tiene saldo suficiente para realizar el retiro.");
+        return;
+    }
+
+    // Realizar el retiro
+    usuarios[index_origen].saldo -= monto;
+    printf("Retiro de %.2f realizado en la cuenta %d.\n", monto, cuenta_origen);
 }
 
 // Función para realizar una transferencia
 void realizarTransferencia(int num_cuenta_origen, int num_cuenta_destino, double monto)
 {
+    // Buscar la cuenta origen
+    int index_origen = -1;
+    for (int i = 0; i < total_usuarios; ++i)
+    {
+        if (usuarios[i].no_cuenta == num_cuenta_origen)
+        {
+            index_origen = i;
+            break;
+        }
+    }
+
+    // Validar si la cuenta origen existe
+    if (index_origen == -1)
+    {
+        escribirError("Error: El número de cuenta no existe.");
+        return;
+    }
+
+    // Buscar la cuenta destino
+    int index_destino = -1;
+    for (int i = 0; i < total_usuarios; ++i)
+    {
+        if (usuarios[i].no_cuenta == num_cuenta_destino)
+        {
+            index_destino = i;
+            break;
+        }
+    }
+
+    // Validar si la cuenta destino existe
+    if (index_destino == -1)
+    {
+        escribirError("Error: El número de cuenta no existe.");
+        return;
+    }
+
+    // Validar si el monto es válido
+    if (monto <= 0)
+    {
+        escribirError("Error: El monto debe ser un número positivo.");
+        return;
+    }
+
+    // Validar si la cuenta origen tiene saldo suficiente
+    if (usuarios[index_origen].saldo < monto)
+    {
+        escribirError("Error: La cuenta no tiene saldo suficiente para realizar la transferencia.");
+        return;
+    }
+
+    // Realizar la transferencia
+    usuarios[index_origen].saldo -= monto;
+    usuarios[index_destino].saldo += monto;
+    printf("Transferencia de %.2f realizada de la cuenta %d a la cuenta %d.\n", monto, num_cuenta_origen, num_cuenta_destino);
 }
 
 // Función para procesar las operaciones bancarias
