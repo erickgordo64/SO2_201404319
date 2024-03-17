@@ -2,12 +2,15 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
+#include <time.h>
 
-#define MAX_LINE_LENGTH 256
+#define MAX_LINE_LENGTH 500
 #define MAX_USERS 1000
 #define MAX_OPERATIONS 1000
 #define NUM_HILOS 3
 #define NUM_THREADS 4
+#define MAX_ERRORES_CARGA_USUARIOS 1000
+#define MAX_ERRORES_CARGA_OPERACIONES 1000
 
 // Estructura para representar un usuario
 typedef struct
@@ -26,6 +29,28 @@ typedef struct
     double monto;
 } Operacion;
 
+// Función para obtener la fecha actual y formatearla
+void obtenerFechaHora(char *fecha)
+{
+    time_t rawtime;
+    struct tm *info;
+    time(&rawtime);
+    info = localtime(&rawtime);
+    strftime(fecha, 20, "%Y_%m_%d-%H_%M_%S", info);
+}
+
+typedef struct
+{
+    int linea;
+    char mensaje[MAX_LINE_LENGTH];
+} ErrorCargaUsuario;
+
+typedef struct
+{
+    int linea;
+    char mensaje[MAX_LINE_LENGTH];
+} ErrorCargaOperacion;
+
 Usuario usuarios[MAX_USERS];           // Arreglo para almacenar usuarios
 Operacion operaciones[MAX_OPERATIONS]; // Arreglo para almacenar operaciones
 int total_usuarios = 0;                // Total de usuarios cargados
@@ -38,10 +63,21 @@ int errores_saldo_no_real = 0;
 
 int usuarios_procesados[NUM_HILOS] = {0}; // Usuarios procesados por cada hilo
 
+int total_retiros = 0;
+int total_depositos = 0;
+int total_transferencias;
+int total_operaciones_realizadas = 0;
+int operaciones_realizadas_por_hilo[NUM_THREADS] = {0};
+
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER; // Mutex para sincronizar acceso a datos compartidos
 
+ErrorCargaUsuario errores_carga_usuarios_arr[MAX_ERRORES_CARGA_USUARIOS];
+ErrorCargaOperacion errores_carga_operaciones_arr[MAX_ERRORES_CARGA_OPERACIONES];
+int total_errores_carga_usuarios = 0;
+int total_errores_carga_operaciones = 0;
+
 // Función para escribir un error en el archivo de errores
-void escribirError(const char *mensaje)
+void escribirError(const char *mensaje, int linea)
 {
     // Abrir el archivo de errores
     FILE *error_file = fopen("errores.log", "a"); // Abre el archivo en modo de añadir al final
@@ -52,6 +88,13 @@ void escribirError(const char *mensaje)
     }
     fprintf(error_file, "%s\n", mensaje);
     fclose(error_file);
+
+    // Guardar el error en una estructura ErrorCargaUsuario
+    errores_carga_operaciones_arr[total_errores_carga_operaciones].linea = linea;
+    snprintf(errores_carga_operaciones_arr[total_errores_carga_operaciones].mensaje, MAX_LINE_LENGTH, "%s\n", mensaje);
+
+    // Incrementar el contador de errores
+    total_errores_carga_operaciones++;
 }
 
 // Función que será ejecutada por cada hilo
@@ -109,6 +152,13 @@ void *procesarUsuarios(void *args)
             fprintf(error_file, "Error en la línea %d: Usuario con cuenta %d: %s\n", i + 1, usuario.no_cuenta, causa_error);
             fclose(error_file);
             pthread_mutex_unlock(&mutex);
+
+            // Guardar el error en una estructura ErrorCargaUsuario
+            errores_carga_usuarios_arr[total_errores_carga_usuarios].linea = i + 1;
+            snprintf(errores_carga_usuarios_arr[total_errores_carga_usuarios].mensaje, MAX_LINE_LENGTH, "Usuario con cuenta %d: %s", usuario.no_cuenta, causa_error);
+
+            // Incrementar el contador de errores
+            total_errores_carga_usuarios++;
         }
         else
         {
@@ -125,30 +175,44 @@ void *procesarUsuarios(void *args)
 // Función para generar el reporte de carga
 void generarReporte()
 {
-    FILE *reporte = fopen("carga_reporte.log", "w");
-    if (reporte == NULL)
-    {
-        perror("Error al abrir el archivo de reporte");
-        exit(EXIT_FAILURE);
-    }
+    char nombre_archivo[50];
+    char fecha[20];
+    obtenerFechaHora(fecha);
+    sprintf(nombre_archivo, "carga_%s.log", fecha);
+    FILE *archivo_registro = fopen(nombre_archivo, "w");
 
-    fprintf(reporte, "Desglose de carga por hilo:\n");
+    if (archivo_registro == NULL)
+    {
+        perror("Error al crear el archivo de registro");
+        pthread_exit(NULL);
+    }
+    fprintf(archivo_registro, "-----------------Carga de usuarios-----------------\n");
+    fprintf(archivo_registro, "\n");
+    fprintf(archivo_registro, "Fecha:%s\n", fecha);
+    fprintf(archivo_registro, "\n");
     for (int i = 0; i < NUM_HILOS; i++)
     {
-        fprintf(reporte, "Hilo %d: %d usuarios cargados\n", i + 1, usuarios_procesados[i]);
+        fprintf(archivo_registro, "Hilo %d: %d usuarios cargados\n", i + 1, usuarios_procesados[i]);
     }
-    fprintf(reporte, "Total de usuarios cargados: %d\n", total_usuarios);
+    fprintf(archivo_registro, "Total de usuarios cargados: %d\n", total_usuarios);
 
-    fprintf(reporte, "\nErrores en la carga:\n");
-    fprintf(reporte, "Cuentas duplicadas: %d\n", errores_cuenta_duplicada);
-    fprintf(reporte, "Cuentas no enteras positivas: %d\n", errores_cuenta_no_entero);
-    fprintf(reporte, "Saldos no reales positivos: %d\n", errores_saldo_no_real);
+    fprintf(archivo_registro, "\nErrores en la carga:\n");
+    fprintf(archivo_registro, "Cuentas duplicadas: %d\n", errores_cuenta_duplicada);
+    fprintf(archivo_registro, "Cuentas no enteras positivas: %d\n", errores_cuenta_no_entero);
+    fprintf(archivo_registro, "Saldos no reales positivos: %d\n", errores_saldo_no_real);
 
-    fclose(reporte);
+    // Escribir los errores en la carga de usuarios
+    fprintf(archivo_registro, "\nErrores en la carga de usuarios:\n");
+    for (int i = 0; i < total_errores_carga_usuarios; i++)
+    {
+        fprintf(archivo_registro, "Error en la línea %d: %s\n", errores_carga_usuarios_arr[i].linea, errores_carga_usuarios_arr[i].mensaje);
+    }
+
+    fclose(archivo_registro);
 }
 
 // Función para realizar un depósito
-void realizarDeposito(int cuenta_destino, double monto)
+void realizarDeposito(int cuenta_destino, double monto, int linea)
 {
     // Buscar la cuenta destino
     int index_destino = -1;
@@ -164,14 +228,14 @@ void realizarDeposito(int cuenta_destino, double monto)
     // Validar si la cuenta destino existe
     if (index_destino == -1)
     {
-        escribirError("Error: El número de cuenta no existe.");
+        escribirError("Error: El número de cuenta no existe.", linea);
         return;
     }
 
     // Validar si el monto es válido
     if (monto <= 0)
     {
-        escribirError("Error: El monto debe ser un número positivo.");
+        escribirError("Error: El monto debe ser un número positivo.", linea);
         return;
     }
 
@@ -181,7 +245,7 @@ void realizarDeposito(int cuenta_destino, double monto)
 }
 
 // Función para realizar un retiro
-void realizarRetiro(int cuenta_origen, double monto)
+void realizarRetiro(int cuenta_origen, double monto, int linea)
 {
     // Buscar la cuenta origen
     int index_origen = -1;
@@ -197,21 +261,21 @@ void realizarRetiro(int cuenta_origen, double monto)
     // Validar si la cuenta origen existe
     if (index_origen == -1)
     {
-        escribirError("Error: El número de cuenta no existe.");
+        escribirError("Error: El número de cuenta no existe.", linea);
         return;
     }
 
     // Validar si el monto es válido
     if (monto <= 0)
     {
-        escribirError("Error: El monto debe ser un número positivo.");
+        escribirError("Error: El monto debe ser un número positivo.", linea);
         return;
     }
 
     // Validar si la cuenta tiene saldo suficiente
     if (usuarios[index_origen].saldo < monto)
     {
-        escribirError("Error: La cuenta no tiene saldo suficiente para realizar el retiro.");
+        escribirError("Error: La cuenta no tiene saldo suficiente para realizar el retiro.", linea);
         return;
     }
 
@@ -221,7 +285,7 @@ void realizarRetiro(int cuenta_origen, double monto)
 }
 
 // Función para realizar una transferencia
-void realizarTransferencia(int num_cuenta_origen, int num_cuenta_destino, double monto)
+void realizarTransferencia(int num_cuenta_origen, int num_cuenta_destino, double monto, int linea)
 {
     // Buscar la cuenta origen
     int index_origen = -1;
@@ -237,7 +301,7 @@ void realizarTransferencia(int num_cuenta_origen, int num_cuenta_destino, double
     // Validar si la cuenta origen existe
     if (index_origen == -1)
     {
-        escribirError("Error: El número de cuenta no existe.");
+        escribirError("Error: El número de cuenta no existe.", linea);
         return;
     }
 
@@ -255,21 +319,21 @@ void realizarTransferencia(int num_cuenta_origen, int num_cuenta_destino, double
     // Validar si la cuenta destino existe
     if (index_destino == -1)
     {
-        escribirError("Error: El número de cuenta no existe.");
+        escribirError("Error: El número de cuenta no existe.", linea);
         return;
     }
 
     // Validar si el monto es válido
     if (monto <= 0)
     {
-        escribirError("Error: El monto debe ser un número positivo.");
+        escribirError("Error: El monto debe ser un número positivo.", linea);
         return;
     }
 
     // Validar si la cuenta origen tiene saldo suficiente
     if (usuarios[index_origen].saldo < monto)
     {
-        escribirError("Error: La cuenta no tiene saldo suficiente para realizar la transferencia.");
+        escribirError("Error: La cuenta no tiene saldo suficiente para realizar la transferencia.", linea);
         return;
     }
 
@@ -282,30 +346,11 @@ void realizarTransferencia(int num_cuenta_origen, int num_cuenta_destino, double
 // Función para procesar las operaciones bancarias
 void *procesarOperaciones(void *args)
 {
-    int hilo_id = *((int *)args);
+     int hilo_id = *((int *)args);
     int start_index = hilo_id * (total_operaciones / NUM_THREADS);
-    int end_index = (hilo_id + 1) * (total_operaciones / NUM_THREADS);
-    if (hilo_id == NUM_THREADS - 1)
-        end_index = total_operaciones;
+    int end_index = (hilo_id == NUM_THREADS - 1) ? total_operaciones : (hilo_id + 1) * (total_operaciones / NUM_THREADS);
 
-    int operaciones_realizadas = 0;
-    int errores_numero_cuenta_no_existe = 0;
-    int errores_monto_invalido = 0;
     int errores_identificador_operacion_no_existe = 0;
-    int errores_saldo_insuficiente = 0;
-
-    FILE *archivo_registro;
-    char nombre_archivo[50];
-    sprintf(nombre_archivo, "registro_carga_operaciones_hilo_%d.txt", hilo_id + 1);
-    archivo_registro = fopen(nombre_archivo, "w");
-
-    if (archivo_registro == NULL)
-    {
-        perror("Error al crear el archivo de registro");
-        pthread_exit(NULL);
-    }
-
-    fprintf(archivo_registro, "Desglose de las operaciones realizadas por el hilo %d:\n", hilo_id + 1);
 
     for (int i = start_index; i < end_index; i++)
     {
@@ -317,51 +362,70 @@ void *procesarOperaciones(void *args)
         {
         case 1: // Depósito
             // Aquí iría la lógica para realizar el depósito
-            realizarDeposito(operacion.cuenta_destino, operacion.monto);
-            operaciones_realizadas++;
+            realizarDeposito(operacion.cuenta_destino, operacion.monto, i);
+            operaciones_realizadas_por_hilo[hilo_id]++;
+            total_depositos++;
+            total_operaciones_realizadas++;
             break;
         case 2: // Retiro
             // Aquí iría la lógica para realizar el retiro
-            realizarRetiro(operacion.cuenta_origen, operacion.monto);
-            operaciones_realizadas++;
+            realizarRetiro(operacion.cuenta_origen, operacion.monto, i);
+            operaciones_realizadas_por_hilo[hilo_id]++;
+            total_retiros++;
+            total_operaciones_realizadas++;
             break;
         case 3: // Transferencia
             // Aquí iría la lógica para realizar la transferencia
-            realizarTransferencia(operacion.cuenta_origen, operacion.cuenta_destino, operacion.monto);
-            operaciones_realizadas++;
+            realizarTransferencia(operacion.cuenta_origen, operacion.cuenta_destino, operacion.monto, i);
+            operaciones_realizadas_por_hilo[hilo_id]++;
+            total_transferencias++;
+            total_operaciones_realizadas++;
             break;
         default:
-            fprintf(archivo_registro, "Error: Operación desconocida en la línea %d\n", i + 1);
+            printf("Error: Operación desconocida en la línea %d\n", i + 1);
             errores_identificador_operacion_no_existe++;
         }
         pthread_mutex_unlock(&mutex); // Desbloquear el mutex después de modificar datos compartidos
     }
-
-    fprintf(archivo_registro, "Total de operaciones realizadas: %d\n", operaciones_realizadas);
-    fprintf(archivo_registro, "Errores:\n");
-    fprintf(archivo_registro, "Números de cuenta no existe: %d\n", errores_numero_cuenta_no_existe);
-    fprintf(archivo_registro, "El monto no es un número o es un número menor a 0: %d\n", errores_monto_invalido);
-    fprintf(archivo_registro, "Identificador de operación no existe: %d\n", errores_identificador_operacion_no_existe);
-    fprintf(archivo_registro, "La cuenta no tiene el saldo suficiente para ejecutar la operación: %d\n", errores_saldo_insuficiente);
-
-    fclose(archivo_registro);
     pthread_exit(NULL);
 }
 
-void crearRegistroCargaOperaciones(const char *filename)
+void crearRegistroCargaOperaciones()
 {
-    FILE *file = fopen(filename, "w");
-    if (file == NULL)
+    char nombre_archivo[50];
+    char fecha[20];
+    obtenerFechaHora(fecha);
+    sprintf(nombre_archivo, "operaciones_%s.log", fecha);
+    FILE *archivo_registro = fopen(nombre_archivo, "w");
+
+    if (archivo_registro == NULL)
     {
-        perror("Error al abrir el archivo para el registro de carga de operaciones");
-        return;
+        perror("Error al crear el archivo de registro operaciones");
+        pthread_exit(NULL);
+    }
+    fprintf(archivo_registro, "-----------------Carga de operaciones-----------------\n");
+    fprintf(archivo_registro, "\n");
+    fprintf(archivo_registro, "Fecha:%s\n", fecha);
+    fprintf(archivo_registro, "\n");
+    for (int i = 0; i < NUM_THREADS; i++)
+    {
+        fprintf(archivo_registro, "Hilo %d: %d operaciones procesadas\n", i + 1, operaciones_realizadas_por_hilo[i]);
+    }
+    fprintf(archivo_registro, "\nOperaciones realizadas:\n");
+    fprintf(archivo_registro, "Retiros: %d\n", total_retiros);
+    fprintf(archivo_registro, "Depositos: %d\n", total_depositos);
+    fprintf(archivo_registro, "Transferencias: %d\n", total_transferencias);
+    fprintf(archivo_registro, "Total de operaciones cargadas: %d\n", total_operaciones_realizadas);
+
+
+    // Escribir los errores en la carga de usuarios
+    fprintf(archivo_registro, "\nErrores en las operaciones:\n");
+    for (int i = 0; i < total_errores_carga_operaciones; i++)
+    {
+        fprintf(archivo_registro, "Error en la línea %d: %s\n", errores_carga_operaciones_arr[i].linea, errores_carga_operaciones_arr[i].mensaje);
     }
 
-    // Imprimir los detalles de la carga de operaciones en el archivo
-    fprintf(file, "Total de operaciones cargadas: %d\n", total_operaciones);
-    fprintf(file, "Errores en la carga de operaciones: %d\n", errores_carga_operaciones);
-
-    fclose(file);
+    fclose(archivo_registro);
 }
 
 // Función para cargar operaciones desde un archivo CSV
@@ -433,7 +497,7 @@ void cargarOperacionesDesdeArchivo()
     printf("Errores en la carga de operaciones: %d\n", errores_carga_operaciones);
 
     // Crear el archivo de registro de carga de operaciones
-    crearRegistroCargaOperaciones("registro_carga_operaciones.txt");
+    crearRegistroCargaOperaciones();
 }
 
 // Función para realizar un depósito en una cuenta
@@ -593,9 +657,8 @@ int main()
             perror("Error al esperar el hilo");
             exit(EXIT_FAILURE);
         }
-    }
+    };
 
-    // Generar el reporte de carga
     generarReporte();
 
     // Menú de operaciones

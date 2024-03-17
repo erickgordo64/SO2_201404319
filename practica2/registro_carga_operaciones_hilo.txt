@@ -1,0 +1,8 @@
+Desglose de las operaciones realizadas por el hilo 4:
+Error: Operación desconocida en la línea 195
+Total de operaciones realizadas: 49
+Errores:
+Números de cuenta no existe: 0
+El monto no es un número o es un número menor a 0: 0
+Identificador de operación no existe: 1
+La cuenta no tiene el saldo suficiente para ejecutar la operación: 0
