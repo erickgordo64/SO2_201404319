@@ -597,6 +597,26 @@ void consultarCuenta(int num_cuenta)
     printf("Error: No existe la cuenta %d\n", num_cuenta);
 }
 
+// Función para guardar los registros de las cuentas en un archivo CSV
+void guardarRegistrosCSV() {
+    FILE *archivo = fopen("registros_cuentas.csv", "w"); // Abrir el archivo en modo de escritura
+
+    if (archivo == NULL) {
+        printf("Error al abrir el archivo %s\n", "registros_cuentas.csv");
+        return;
+    }
+
+    // Escribir la línea de encabezado en el archivo CSV
+    fprintf(archivo, "no_cuenta,nombre,saldo\n");
+
+    // Recorrer las cuentas y escribir cada registro en el archivo CSV
+    for (int i = 0; i < total_usuarios; i++) {
+        fprintf(archivo, "%d,%s,%.2f\n", usuarios[i].no_cuenta, usuarios[i].nombre, usuarios[i].saldo);
+    }
+
+    fclose(archivo); // Cerrar el archivo
+}
+
 int main()
 {
     char filename[MAX_LINE_LENGTH];
@@ -674,7 +694,8 @@ int main()
         printf("3. Transacción\n");
         printf("4. Consultar cuenta\n");
         printf("5. Carga de operacion\n");
-        printf("6. Salir\n");
+        printf("6. Reporte Cuentas csv\n");
+        printf("7. Salir\n");
         printf("Seleccione una opción: ");
         scanf("%d", &opcion);
 
@@ -713,12 +734,15 @@ int main()
             cargarOperacionesDesdeArchivo();
             break;
         case 6:
+            guardarRegistrosCSV();
+            break;
+        case 7:
             printf("Saliendo...\n");
             break;
         default:
             printf("Opción inválida\n");
         }
-    } while (opcion != 6);
+    } while (opcion != 7);
 
     return 0;
 }
